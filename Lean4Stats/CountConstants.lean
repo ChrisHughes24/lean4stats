@@ -19,23 +19,24 @@ unsafe def printConstsInDecl (n : Name) : MetaM Unit := do
   let l ← constsInExpr (← d.value?) .empty
   IO.println l.toList.length
 
+--This is wrong
 unsafe def constsInName
-    (n : Name) (c : ConstantInfo) (f : NameMap ℕ)
-    (l : NameSet := .empty) (num : ℕ := 0) :
+    (n : Name) (c : ConstantInfo) (f : NameMap ℕ := .empty)
+    (l : NameSet := .empty) :
     MetaM (NameMap ℕ × ℕ × NameSet) :=
-  if l.contains n then return (f, num, l)
+  if l.contains n then return (f, 0, l)
   else
   match f.find? n with
-  | some x => return (f, num + x, l)
+  | some x => return (f, x, l)
   | none => (do
       let v ← c.value?
-      v.foldConsts (return (f, num, l.insert n))
+      v.foldConsts (return (f, 1, l.insert n))
         (fun n x => do
           let (f, num, l) ← x
           let c ← getConstInfo n
-          let (f2, num2, l2) ← constsInName n c f l (num + 1)
+          let (f2, num2, l2) ← constsInName n c f l
           return (f2.insert n num2, num + num2, l2))) <|>
-      return (f, 0, l)
+      return (f, 1, l)
   -- e.foldConsts (return (0, l)) (fun n x => do
   --   let (num, l) ← x
   --   if l.contains n then return (num, l)
@@ -83,16 +84,18 @@ unsafe def list_decls : MetaM Unit := do
 
 end Lean
 
-open Lean Core Elab Command Std.Tactic.Lint Meta
+open Lean Core Elab Command Std.Tactic.Lint Meta Std
 
 elab "compileTimeSearchPath" : term =>
   return toExpr (← searchPathRef.get)
 
-unsafe def main (_ : List String) : IO UInt32 := do
+unsafe def main (l : List String) : IO UInt32 := do
   searchPathRef.set compileTimeSearchPath
   let module : Name := `Mathlib
   withImportModules [{module}] {} (trustLevel := 1024) fun env => do
     let ctx := {fileName := "", fileMap := default}
     let state := {env}
-    let _ ← MetaM.toIO findBiggestConst ctx state
+    let name := l.head!.toName
+    let (num, _, _) ← MetaM.toIO (do constsInName name (← getConstInfo name)) ctx state
+    IO.println num.2.1
     return 0
